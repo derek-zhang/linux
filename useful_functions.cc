@@ -1,0 +1,1 @@
+sysconf(_SC_NPROCESSORS_CONF)
