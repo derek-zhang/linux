@@ -1,0 +1,177 @@
+// server
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
+#define CHECK(A) if(A)\
+{\
+printf("error: %s in file %s at line %d\n", strerror(errno), __FILE__, __LINE__);\
+exit(EXIT_FAILURE);\
+}
+
+#define UKEY (key_t)0xABCD
+
+int main(void)
+{
+      //[Data section]
+      int rval = 0;
+      
+      int shmemId = 0;
+      const int shmemSize = sizeof(pthread_rwlock_t);
+      
+      pthread_rwlock_t *rwlock = NULL;
+      pthread_rwlockattr_t rwlattr;
+      
+      //[Get shared mem id]
+      shmemId = shmget(UKEY, shmemSize, IPC_CREAT | IPC_EXCL | S_IRUSR |S_IWUSR);
+      
+      CHECK(shmemId == -1);
+      
+      //[Attach to shared mem]
+      rwlock = (pthread_rwlock_t *)shmat(shmemId, 0, 0);
+      
+      if(NULL == rwlock);
+      
+      memset(rwlock, 0, sizeof(pthread_rwlock_t));
+      
+      //[]      
+      rval = pthread_rwlockattr_init(&rwlattr);
+	  
+      CHECK(rval < 0);
+	  
+      rval = pthread_rwlockattr_setpshared(&rwlattr, PTHREAD_PROCESS_SHARED);
+	  
+      CHECK(rval < 0);
+      
+      rval = pthread_rwlock_init(rwlock, &rwlattr);      
+	  
+      CHECK(rval < 0);
+      
+      for(;;)
+      {
+	char cmd[32];
+	printf("\\> ");
+	
+	scanf("%s", cmd);
+	
+	if(0 == strcmp("exit", cmd))
+	{
+	  break;
+	}
+	else if(0 == strcmp("lock", cmd))
+	{
+	  printf("Trying to lock\n");
+	  rval = pthread_rwlock_wrlock(rwlock);
+	  
+	  CHECK(rval < 0);
+	  
+	  printf("Locked\n");
+	}
+	else if(0 == strcmp("unlock", cmd))
+	{
+	  printf("Trying to unlock\n");
+	  rval = pthread_rwlock_unlock(rwlock);
+	  
+	  CHECK(rval < 0);
+	  
+	  printf("Unlocked\n");
+	}
+	else
+	{
+	  printf("unknown command\n");
+	}
+	
+      }
+	
+      pthread_rwlock_destroy(rwlock);
+      shmctl(shmemId, IPC_RMID, 0);
+      
+      return EXIT_SUCCESS;      
+}
+
+
+
+//Client
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <pthread.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+
+#define CHECK(A) if(A)\
+{\
+printf("error: %s in file %s at line %d\n", strerror(errno), __FILE__, __LINE__);\
+exit(EXIT_FAILURE);\
+}
+
+#define UKEY (key_t)0xABCD
+
+int main(void)
+{
+      //[Data section]
+      int rval = 0;
+      
+      int shmemId = 0;
+      const int shmemSize = sizeof(pthread_rwlock_t);
+      
+      pthread_rwlock_t *rwlock = NULL;
+            
+      //[Get shared mem id]
+      shmemId = shmget(UKEY, shmemSize, S_IRUSR |S_IWUSR);
+      
+      CHECK(shmemId == -1);
+      
+      //[Attach to shared mem]
+      rwlock = (pthread_rwlock_t *)shmat(shmemId, 0, 0);
+      
+      for(;;)
+      {
+	char cmd[32];
+	printf("\\> ");
+	
+	scanf("%s", cmd);
+	
+	if(0 == strcmp("exit", cmd))
+	{
+	  break;
+	}
+	else if(0 == strcmp("lock", cmd))
+	{
+	  printf("Trying to lock\n");
+	  rval = pthread_rwlock_rdlock(rwlock);
+	  
+	  CHECK(rval < 0);
+	  
+	  printf("Locked\n");
+	}
+	else if(0 == strcmp("unlock", cmd))
+	{
+	  printf("Trying to unlock\n");
+	  rval = pthread_rwlock_unlock(rwlock);
+	  
+	  CHECK(rval < 0);
+	  
+	  printf("Unlocked\n");
+	}
+	else
+	{
+	  printf("unknown command\n");
+	}
+	
+      }
+	
+      shmdt(rwlock);
+      
+      return EXIT_SUCCESS;      
+}
+
