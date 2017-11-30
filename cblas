@@ -1,0 +1,123 @@
+#include <vectorize_lib.h>
+#define EIGEN_USE_MKL_ALL
+//#include <mkl.h>
+#include <mkl_cblas.h>
+#include <Eigen/Dense>
+#include <doc_vectorize_lib_impl.h>
+#include <sample.pb.h>
+#include <vector_builder.pb.h>
+#include <baidu/feed/mlarch/fef/extractor.h>
+#include <vector>
+#include <stdlib.h>
+#include <fstream>
+#include <iostream>
+#include <base/logging.h>
+#include <pb_to_json.h>
+#include <stdlib.h>
+#include <com_log.h>
+#include <baidu/feed/mlarch/seqfile/reader.h>
+using baidu::feed::mlarch::seqfile::SequenceFileReader;
+
+using namespace baidu::feed::mlarch::ann::proto;
+using namespace baidu::feed::mlarch;
+
+VectorizeLib *g_lib = NULL;
+
+using namespace Eigen;
+using namespace std;
+using namespace chrono;
+ using namespace baidu::feed::mlarch;
+
+void mul(MatrixXf &A, MatrixXf &B, MatrixXf &C) {
+    float *a = A.data();
+    float *b = B.data();
+    float *c = C.data();
+    int lda = A.cols();
+    int ldb = B.cols();
+    int ldc = B.cols();
+    CBLAS_TRANSPOSE a_trans, b_trans;
+    a_trans = CblasNoTrans;
+    b_trans = CblasNoTrans;
+    int M = A.rows();
+    int N = B.cols();
+    int K = A.cols();
+    float scaleAB = 1.0;
+    float scaleT = 0.0;
+    cblas_sgemm(CblasRowMajor, a_trans, b_trans, M, N, K, scaleAB, a, lda, b, ldb,
+                      scaleT, c, ldc);
+}
+int32_t cal_ctr_dnn(const Sample& sample) {
+    std::vector<std::pair<int, double>> res;
+    g_lib->sync_compute_ctr_dnn(&sample, 1000001, &res);
+    for (const auto &i : res) {
+        std::cout << i.first << ":" << i.second << ",";
+    }
+    std::cout << "\n";
+    return 0;
+}
+
+int32_t print_sample(const Sample& sample) {
+    
+    return 0;
+}
+
+typedef int(sample_deal_func)(const Sample& sample);
+    
+int32_t deal_seq_file(std::string path, sample_deal_func func) {
+    std::ifstream ifs(path);
+    const char* buffer = nullptr;
+    size_t size = 0;
+    auto reader = std::make_shared<SequenceFileReader>(ifs);
+    while (0 == reader->next()) {
+        if (0 == reader->current_value(buffer, size)) {
+            Sample sample;
+            if (!sample.ParseFromArray(buffer + 4, size - 4)) {
+                std::cout << "parse pb failed, str:" << buffer << std::endl;
+                exit(-1);
+            }
+            func(sample);
+        }
+    }
+    return 0;
+}
+
+int main() {
+    mkl_set_num_threads(10);
+    Eigen::initParallel();
+MatrixXf m = MatrixXf::Random(10, 4610);
+    MatrixXf n = MatrixXf::Random(4610, 511);
+    {
+    MatrixXf o(10, 511);
+    auto start = std::chrono::system_clock::now();
+    o.noalias() = m * n;
+    auto end = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<microseconds>(end - start);
+
+    std::cout << "Here is the matrix m:\n" << double(duration.count()) * microseconds::period::num / microseconds::period::den  << std::endl;
+    }
+    MatrixXf o;
+    o.setZero(m.rows(), n.cols());
+    auto start = std::chrono::system_clock::now();
+    mul(m, n, o);
+    auto end = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<microseconds>(end - start);
+
+    std::cout << "Here is the matrix m:\n" << double(duration.count()) * microseconds::period::num / microseconds::period::den  << std::endl;
+    std::string conf_dir = "./conf";
+    if (com_loadlog(conf_dir.c_str(), "comlog.conf") != 0) {
+        printf("Load comlog failed\n");
+        LOG(FATAL) << "Load comlog failed\n";
+        exit(1);
+    }
+    g_lib = VectorizeLib::instance();
+    if (g_lib->init(CTR_DNN, "./conf", "vectorize.conf") != 0) {
+        LOG(FATAL) << "vectorize lib initalize failed";
+        exit(1);
+    }
+    LOG(NOTICE) << "env init success";
+
+    deal_seq_file("sample_log", cal_ctr_dnn);
+    //lib->destroy();
+    return 0;
+}
+
